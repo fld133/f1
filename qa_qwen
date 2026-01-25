@@ -1,0 +1,110 @@
+import cv2
+import torch
+import numpy as np
+from PIL import Image
+from transformers import CLIPModel, CLIPProcessor
+from dictionary import AUTO_KEYWORDS
+
+# =========================
+# 1. 本地 CLIP 模型路径（B 方案）
+# =========================
+CLIP_MODEL_DIR = r"D:\pythondata\biye1\models\clip\models--openai--clip-vit-base-patch32\snapshots\3d74acf9a28c67741b2f4f2ea7635f0aaf6f0268"
+
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+print(f"Using device: {DEVICE}")
+
+# =========================
+# 2. 加载 CLIP（离线）
+# =========================
+processor = CLIPProcessor.from_pretrained(CLIP_MODEL_DIR)
+model = CLIPModel.from_pretrained(CLIP_MODEL_DIR).to(DEVICE)
+model.eval()
+
+# =========================
+# 3. 视频抽帧
+# =========================
+def sample_video_frames(video_path, num_frames=8):
+    cap = cv2.VideoCapture(video_path)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    indices = np.linspace(0, total_frames - 1, num_frames, dtype=int)
+    frames = []
+
+    for idx in indices:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+        ret, frame = cap.read()
+        if ret:
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            frames.append(Image.fromarray(frame))
+
+    cap.release()
+
+    print(f"Total frames: {total_frames}")
+    print(f"Sampled frame indices: {indices.tolist()}")
+    return frames
+
+# =========================
+# 4. 视频 → CLIP 向量
+# =========================
+def video_clip_embedding(frames):
+    inputs = processor(
+        images=frames,
+        return_tensors="pt"
+    ).to(DEVICE)
+
+    with torch.no_grad():
+        image_features = model.get_image_features(**inputs)
+
+    # 多帧平均
+    video_embedding = image_features.mean(dim=0, keepdim=True)
+    return video_embedding
+
+# =========================
+# 5. CLIP 自动关键词生成（核心）
+# =========================
+def clip_auto_keywords(video_embedding, keywords, top_k=5):
+    text_inputs = processor(
+        text=keywords,
+        return_tensors="pt",
+        padding=True
+    ).to(DEVICE)
+
+    with torch.no_grad():
+        text_features = model.get_text_features(**text_inputs)
+
+    # 归一化
+    video_embedding = video_embedding / video_embedding.norm(dim=-1, keepdim=True)
+    text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+
+    # 相似度
+    similarity = (video_embedding @ text_features.T).squeeze(0)
+
+    top_indices = similarity.topk(top_k).indices.tolist()
+    selected_keywords = [keywords[i] for i in top_indices]
+
+    return selected_keywords
+
+def get_clip_keywords_from_video(video_path, num_frames=5, top_k=5):
+    frames = sample_video_frames(video_path, num_frames=num_frames)
+    video_emb = video_clip_embedding(frames)
+    keywords = clip_auto_keywords(video_emb, AUTO_KEYWORDS, top_k=top_k)
+    return keywords
+
+# =========================
+# 6. 主程序（用户输入视频）
+# =========================
+if __name__ == "__main__":
+
+
+    frames = sample_video_frames(video_path, num_frames=8)
+    video_emb = video_clip_embedding(frames)
+
+    keywords = clip_auto_keywords(video_emb, AUTO_KEYWORDS, top_k=5)
+
+    # 传给 Qwen 的变量
+    CLIP_KEYWORDS = keywords
+
+    print("\nCLIP 自动关键词:")
+    for k in CLIP_KEYWORDS:
+        print(f"- {k}")
+
