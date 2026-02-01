@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Video QA Demo</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<div class="page">
+
+    <h1 class="title">🎥 Video QA Demo</h1>
+
+    <div class="container">
+
+        <!-- 左侧：输入区 -->
+        <div class="left-panel">
+            <div class="card">
+                <div class="card-details">
+                    <form method="post" enctype="multipart/form-data">
+
+                        <label class="label">上传视频</label>
+                        <input type="file" name="video" required>
+
+                        <label class="label">问题</label>
+                        <div class="search">
+                            <input
+                                type="text"
+                                id="question-input"
+                                name="question"
+                                class="search__input"
+                                placeholder="请输入问题"
+                                value="{{ question }}"
+                            >
+                        </div>
+
+                        <label class="label">常见问题</label>
+                        <select class="select" onchange="setQuestion(this.value)">
+                            <option value="">选择一个问题</option>
+                            {% for q in common_questions %}
+                                <option value="{{ q }}">{{ q }}</option>
+                            {% endfor %}
+                        </select>
+
+                        <button type="submit" class="btn-shine">
+                            <span>提交</span>
+                        </button>
+
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右侧：回答 + 历史记录 -->
+        <div class="right-panel">
+
+            <!-- 回答卡片 -->
+            <div class="card">
+                <div class="card-details">
+                    <p class="text-title">回答</p>
+                    <p class="text-body">
+                        {{ answer if answer else "等待提问…" }}
+                    </p>
+
+                </div>
+            </div>
+
+            <!-- ★ 新增：历史记录卡片 -->
+            <div class="card history-card">
+                <div class="history-header" onclick="toggleHistory()">
+                    <span>历史记录 ▼</span>
+                </div>
+                <div id="history-list" class="history-list" style="display:none;">
+                    <!-- JS 动态插入历史记录 -->
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<!-- JS -->
+<script>
+let historyVisible = false;
+
+function setQuestion(text) {
+    if (text) {
+        document.getElementById("question-input").value = text;
+    }
+}
+
+function toggleHistory() {
+    const list = document.getElementById("history-list");
+    historyVisible = !historyVisible;
+    list.style.display = historyVisible ? "block" : "none";
+}
+
+// 加载历史记录
+function loadHistory() {
+    fetch("/history")
+        .then(res => res.json())
+        .then(data => {
+            const list = document.getElementById("history-list");
+            list.innerHTML = "";
+
+            data.forEach(item => {
+                const div = document.createElement("div");
+                div.className = "history-item";
+
+                div.innerHTML = `
+                    <div class="history-row">
+                        <div class="history-content">
+                            <div class="q">Q: ${item.question}</div>
+                            <div class="a">A: ${item.answer}</div>
+                            <div class="video-path"><strong>路径:</strong> ${item.video_path}</div>
+                        </div>
+                        <div class="history-actions">
+                            <button onclick="deleteHistory(${item.id})">删除</button>
+                        </div>
+                    </div>
+                `;
+
+                list.appendChild(div);
+            });
+        });
+}
+
+function deleteHistory(id) {
+    fetch(`/history/${id}`, { method: "DELETE" })
+        .then(() => loadHistory());
+}
+
+// 页面加载时刷新历史记录
+loadHistory();
+</script>
+
+</body>
+</html>
